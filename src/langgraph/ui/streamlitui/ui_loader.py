@@ -30,5 +30,9 @@ class LoadStreamliUI:
             
             ## USecase selection
             self.user_controls["selected_usecase"]=st.selectbox("Select Usecases",usecase_options)
+            if self.user_controls['selected_usecase']=="Web Search Chatbot":
+                os.environ["BRAVE_SEARCH_API_KEY"]=self.user_controls['BRAVE_SEARCH_API_KEY']=st.session_state["BRAVE_SEARCH_API_KEY"]=st.text_input("Brave API Key",type="password")
+                if not self.user_controls["BRAVE_SEARCH_API_KEY"]:
+                    st.warning("Plaese enter your Brave API key to proceed")
 
         return self.user_controls
