@@ -9,57 +9,126 @@ class DisplayResultStreamlit:
         self.usecase = usecase
         self.graph = graph
         self.user_message = user_message
-
+    
     def display_result_on_ui(self):
-        usecase = self.usecase
-        graph = self.graph
-        user_message = self.user_message
+    
+        current_key = f"{self.usecase}_{st.session_state.get('selected_llm', 'default')}_{st.session_state.get('selected_model', 'default')}"
+        
+        if 'current_interaction_key' not in st.session_state or st.session_state.current_interaction_key != current_key:
+            st.session_state.current_interaction_key = current_key
+            
+            st.session_state.messages = []
+        
+            if hasattr(st.session_state, 'web_search_messages'):
+                del st.session_state.web_search_messages
+           
+            if hasattr(st.session_state, 'basic_chatbot_messages'):
+                del st.session_state.basic_chatbot_messages
 
-        if usecase == "Basic Chatbot":
-            for event in graph.stream({'messages': ("user", user_message)}):
-                for value in event.values():
-                    with st.chat_message("user"):
-                        st.write(user_message)
-                    with st.chat_message("assistant"):
-                        st.write(value["messages"].content if hasattr(value["messages"], "content") else value["messages"])
+        
+        if self.usecase == "Web Search Chatbot":
+           
+            if 'web_search_messages' not in st.session_state:
+                st.session_state.web_search_messages = []
+            messages_to_display = st.session_state.web_search_messages
+        elif self.usecase == "Basic Chatbot":
+            
+            if 'basic_chatbot_messages' not in st.session_state:
+                st.session_state.basic_chatbot_messages = []
+            messages_to_display = st.session_state.basic_chatbot_messages
+        else:
+            
+            messages_to_display = st.session_state.messages
 
-        elif usecase == "Web Search Chatbot":
-            # Show user's message
-            with st.chat_message("user"):
-                st.write(user_message)
+        
+        user_message_entry = {"role": "user", "content": self.user_message}
+        messages_to_display.append(user_message_entry)
 
+        
+        st.empty()
 
+        
+        for message in messages_to_display:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+
+        if self.usecase == "Basic Chatbot":
+            
+            with st.chat_message("assistant"):
+                generating_placeholder = st.empty()
+                generating_placeholder.markdown("🤖 Generating...")
+
+            #
+            full_response = ""
+            with st.chat_message("assistant"):
+                response_placeholder = st.empty()
+                for event in self.graph.stream({'messages': ("user", self.user_message)}):
+                    for value in event.values():
+                        chunk = value["messages"].content if hasattr(value["messages"], "content") else value["messages"]
+                        full_response += chunk
+                        response_placeholder.markdown(full_response)
+                
+                
+                generating_placeholder.empty()
+                
+                #
+                st.session_state.basic_chatbot_messages.append({"role": "assistant", "content": full_response})
+
+        elif self.usecase == "Web Search Chatbot":
+            # Show thinking state
             with st.chat_message("assistant"):
                 thinking_placeholder = st.empty()
                 thinking_placeholder.markdown("💭 Thinking...")
-            initial_state = {"messages": [HumanMessage(content=user_message)]}
-            res = graph.invoke(initial_state)
-
-          
-            thinking_placeholder.empty()
-
             
+            initial_state = {"messages": [HumanMessage(content=self.user_message)]}
+            res = self.graph.invoke(initial_state)
+            
+            thinking_placeholder.empty()
+            
+            # Process and display responses
+            full_ai_response = ""
+            tool_responses = []
+
             for message in res['messages']:
                 if isinstance(message, ToolMessage):
                     if is_function_call_placeholder(message.content):
                         continue
                     parsed_results = parse_tool_response(message.content)
                     if parsed_results:
-                        with st.chat_message("assistant"):
-                            st.markdown("**🔎 Tool Response:**")
-                            for item in parsed_results:
-                                render_item(item)
-                    else:
-                        with st.chat_message("assistant"):
-                            st.write("No valid structured tool response found.")
+                        tool_responses.extend(parsed_results)
 
                 elif isinstance(message, AIMessage) and message.content:
                     if is_function_call_placeholder(message.content):
                         continue
-                    with st.chat_message("assistant"):
-                        st.write(message.content)
+                    full_ai_response += message.content
 
+            
+            st.session_state.web_search_messages = [user_message_entry]
 
+            
+            if tool_responses:
+                with st.chat_message("assistant"):
+                    st.markdown("**🔎 Tool Responses:**")
+                    for item in tool_responses:
+                        render_item(item)
+                    
+                    st.session_state.web_search_messages.append({
+                        "role": "assistant", 
+                        "content": "**🔎 Tool Responses:**\n" + "\n".join([
+                            f"- {item.get('title', 'Untitled')}" for item in tool_responses
+                        ])
+                    })
+
+            
+            if full_ai_response:
+                with st.chat_message("assistant"):
+                    st.write(full_ai_response)
+                
+                
+                st.session_state.web_search_messages.append({
+                    "role": "assistant", 
+                    "content": full_ai_response
+                })
 
 def parse_tool_response(content):
     try:
